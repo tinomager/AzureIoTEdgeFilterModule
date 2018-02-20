@@ -1,4 +1,4 @@
-# AzureIoTEdgeAnomalyDetectModule
+# AzureIoTEdgeFilterModule
 Azure IoT Edge module for filtering scored DHT data
 
 The module supports one input "input1" for receiving scored DHT data.
