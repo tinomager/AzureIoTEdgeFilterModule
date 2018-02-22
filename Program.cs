@@ -1,7 +1,7 @@
 ﻿using System;
 using AzureIoTEdgeModuleShared;
 
-namespace AzureIoTEdgeAnomalyDetectModule
+namespace AzureIoTEdgeFilterModule
 {
     using System;
     using System.IO;
@@ -18,6 +18,19 @@ namespace AzureIoTEdgeAnomalyDetectModule
 
     class Program
     {
+
+        private static double TemperatureThresholdUpper {get;set;}
+
+        private static double TemperatureThresholdLower {get;set;}
+
+        private static double HumidityThresholdUpper {get;set;}
+
+        private static double HumidityThresholdLower {get;set;}
+ 
+        private static string WebServerUrl { get; set;}
+
+        private static MachineConnector MachineConnector { get; set; }
+
         static void Main(string[] args)
         {
             // The Edge runtime gives us the connection string we need -- it is injected as an environment variable
@@ -99,26 +112,51 @@ namespace AzureIoTEdgeAnomalyDetectModule
             var moduleTwinCollection = twin.Properties.Desired;
             
             //check for default desired properties
-            if (moduleTwinCollection["TemperatureMeanValue"] != null)
+            if (moduleTwinCollection["TemperatureThresholdUpper"] != null)
             {
-                TemperatureMeanValue = moduleTwinCollection["TemperatureMeanValue"];
+                TemperatureThresholdUpper = moduleTwinCollection["TemperatureThresholdUpper"];
             }
-            if (moduleTwinCollection["TemperatureStdDeviation"] != null)
+            else{
+                TemperatureThresholdUpper = 40;
+            }
+
+            if (moduleTwinCollection["TemperatureThresholdLower"] != null)
             {
-                TemperatureStdDeviation = moduleTwinCollection["TemperatureStdDeviation"];
+                TemperatureThresholdLower = moduleTwinCollection["TemperatureThresholdLower"];
             }
-            if (moduleTwinCollection["HumidityMeanValue"] != null)
+            else{
+                TemperatureThresholdLower = 10;
+            }
+
+            if (moduleTwinCollection["HumidityThresholdUpper"] != null)
             {
-                HumidityMeanValue = moduleTwinCollection["HumidityMeanValue"];
+                HumidityThresholdUpper = moduleTwinCollection["HumidityThresholdUpper"];
             }
-            if (moduleTwinCollection["HumidityStdDeviation"] != null)
+            else{
+                HumidityThresholdUpper = 80;
+            }
+
+            if (moduleTwinCollection["HumidityThresholdLower"] != null)
             {
-                HumidityStdDeviation = moduleTwinCollection["HumidityStdDeviation"];
+                HumidityThresholdLower = moduleTwinCollection["HumidityThresholdLower"];
             }
+            else{
+                HumidityThresholdLower = 40;
+            }
+
+            if (moduleTwinCollection["WebServerUrl"] != null)
+            {
+                WebServerUrl = moduleTwinCollection["WebServerUrl"];
+            }
+            else{
+                WebServerUrl = "http://172.17.0.1:3000/";
+            }
+
+            MachineConnector = new MachineConnector(WebServerUrl);
 
             await ioTHubModuleClient.OpenAsync();
 
-            Console.WriteLine("Anomaly Detect Edge module client initialized.");
+            Console.WriteLine("Filter Edge module client initialized.");
 
             await ioTHubModuleClient.SetInputMessageHandlerAsync("input1", MessageReceived, ioTHubModuleClient);       
 
@@ -139,22 +177,43 @@ namespace AzureIoTEdgeAnomalyDetectModule
                 Console.WriteLine($"Received message {DateTime.UtcNow.ToString()}: [{messageString}]");
 
                 // Get message body
-                var messageBody = JsonConvert.DeserializeObject<DHTMessageBody>(messageString);
+                var messageBody = JsonConvert.DeserializeObject<ScoredDHTMessageBody>(messageString);
 
-                //do the scoring
-                var prediction = AnomalyDetector.IsAnomaly(messageBody.temperature, messageBody.humidity);
+                //check the scoring and thresholds
+                var sendData = messageBody.IsAnomaly;
+                var commandLevel = InteractionCommandLevel.Warning;
 
-                var predictionMessage = new ScoredDHTMessageBody(messageBody, prediction);
+                if(messageBody.temperature > TemperatureThresholdUpper ||
+                    messageBody.temperature < TemperatureThresholdLower ||
+                    messageBody.humidity > HumidityThresholdUpper ||
+                    messageBody.humidity < HumidityThresholdLower){
+                        sendData = true;
+                        commandLevel = InteractionCommandLevel.Critical;
+                    }
+                                
 
-                var jsonMessage = JsonConvert.SerializeObject(predictionMessage);
+                if(sendData){
+                    var jsonMessage = JsonConvert.SerializeObject(messageBody);
 
-                var pipeMessage = new Message(Encoding.UTF8.GetBytes(jsonMessage));
+                    var pipeMessage = new Message(Encoding.UTF8.GetBytes(jsonMessage));
 
-                pipeMessage.Properties.Add("content-type", "application/json");
+                    pipeMessage.Properties.Add("content-type", "application/json");
 
-                await deviceClient.SendEventAsync("output1", pipeMessage);
+                    await deviceClient.SendEventAsync("output1", pipeMessage);
 
-                Console.WriteLine($"Scored data sent {predictionMessage.timeCreated}: {predictionMessage.temperature} |  {predictionMessage.humidity} | Anomaly {predictionMessage.IsAnomaly}");
+                    Console.WriteLine($"Sent data to upstream because relevant {messageBody.timeCreated}: {messageBody.temperature} |  {messageBody.humidity} | Anomaly {messageBody.IsAnomaly}");
+                
+                    if(MachineConnector.InteractWithMachine(new MachineInteractionCommand(){
+                        CommandLevel = commandLevel,
+                        Temperature = messageBody.temperature,
+                        Humidity = messageBody.humidity
+                    })){
+                        Console.WriteLine($"Successfully interacted with machine");
+                    }
+                }
+                else{
+                    Console.WriteLine($"Data not send to IoT Hub because not relevant: {messageBody.temperature} | {messageBody.humidity} | {messageBody.IsAnomaly}");
+                }
             }
             catch(Exception ex){
                 Console.WriteLine($"Exception occured: {ex.Message}");
@@ -163,16 +222,6 @@ namespace AzureIoTEdgeAnomalyDetectModule
 
             return MessageResponse.Completed;
         }
-
-        private static double TemperatureMeanValue {get;set;}
-
-        private static double TemperatureStdDeviation {get;set;}
-
-        private static double HumidityMeanValue {get;set;}
-
-        private static double HumidityStdDeviation {get;set;}
-
-        private static AnomalyDetector AnomalyDetector { get; set; }
 
         private static Task onDesiredPropertiesUpdate(TwinCollection desiredProperties, object userContext)
         {
@@ -195,32 +244,39 @@ namespace AzureIoTEdgeAnomalyDetectModule
 
                 var reportedProperties = new TwinCollection();
 
-                if (desiredProperties["TemperatureMeanValue"] != null)
+                if (desiredProperties["TemperatureThresholdUpper"] != null)
                 {
-                    TemperatureMeanValue = desiredProperties["TemperatureMeanValue"];
+                    TemperatureThresholdUpper = desiredProperties["TemperatureThresholdUpper"];
 
-                    reportedProperties["TemperatureMeanValue"] = TemperatureMeanValue;
+                    reportedProperties["TemperatureThresholdUpper"] = TemperatureThresholdUpper;
                 }
 
-                if (desiredProperties["TemperatureStdDeviation"] != null)
+                if (desiredProperties["TemperatureThresholdLower"] != null)
                 {
-                    TemperatureStdDeviation = desiredProperties["TemperatureStdDeviation"];
+                    TemperatureThresholdLower = desiredProperties["TemperatureThresholdLower"];
 
-                    reportedProperties["TemperatureStdDeviation"] = TemperatureStdDeviation;
+                    reportedProperties["TemperatureThresholdLower"] = TemperatureThresholdLower;
                 }
 
-                if (desiredProperties["HumidityMeanValue"] != null)
+                if (desiredProperties["HumidityThresholdUpper"] != null)
                 {
-                    HumidityMeanValue = desiredProperties["HumidityMeanValue"];
+                    HumidityThresholdUpper = desiredProperties["HumidityThresholdUpper"];
 
-                    reportedProperties["HumidityMeanValue"] = HumidityMeanValue;
+                    reportedProperties["HumidityThresholdUpper"] = HumidityThresholdUpper;
                 }
 
-                if (desiredProperties["HumidityStdDeviation"] != null)
+                if (desiredProperties["HumidityThresholdLower"] != null)
                 {
-                    HumidityStdDeviation = desiredProperties["HumidityStdDeviation"];
+                    HumidityThresholdLower = desiredProperties["HumidityThresholdLower"];
 
-                    reportedProperties["HumidityStdDeviation"] = HumidityStdDeviation;
+                    reportedProperties["HumidityThresholdLower"] = HumidityThresholdLower;
+                }
+
+                if (desiredProperties["WebServerUrl"] != null)
+                {
+                    WebServerUrl = desiredProperties["WebServerUrl"];
+
+                    reportedProperties["WebServerUrl"] = WebServerUrl;
                 }
 
                 if (reportedProperties.Count > 0)

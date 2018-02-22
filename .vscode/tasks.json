@@ -7,7 +7,7 @@
             "type": "process",
             "args": [
                 "build",
-                "${workspaceFolder}/AzureIoTEdgeAnomalyDetectModule.csproj"
+                "${workspaceFolder}/AzureIoTEdgeFilterModule.csproj"
             ],
             "problemMatcher": "$msCompile"
         }
