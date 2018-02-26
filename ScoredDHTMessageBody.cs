@@ -3,6 +3,8 @@ namespace AzureIoTEdgeModuleShared {
     public class ScoredDHTMessageBody : DHTMessageBody{
         public bool IsAnomaly{ get; set; }
 
+        public ScoredDHTMessageBody(){}
+
         public ScoredDHTMessageBody(DHTMessageBody baseMessage)
         {
             this.temperature = baseMessage.temperature;

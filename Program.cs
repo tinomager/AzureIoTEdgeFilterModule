@@ -19,15 +19,15 @@ namespace AzureIoTEdgeFilterModule
     class Program
     {
 
-        private static double TemperatureThresholdUpper {get;set;}
+        private static double TemperatureThresholdUpper {get;set;} = 35;
 
-        private static double TemperatureThresholdLower {get;set;}
+        private static double TemperatureThresholdLower {get;set;} = 10;
 
-        private static double HumidityThresholdUpper {get;set;}
+        private static double HumidityThresholdUpper {get;set;} = 90;
 
-        private static double HumidityThresholdLower {get;set;}
+        private static double HumidityThresholdLower {get;set;} = 30;
  
-        private static string WebServerUrl { get; set;}
+        private static string WebServerUrl { get; set;} = "http://172.17.0.1:3000/";
 
         private static MachineConnector MachineConnector { get; set; }
 
@@ -111,49 +111,6 @@ namespace AzureIoTEdgeFilterModule
             await onDesiredPropertiesUpdate(twin.Properties.Desired, ioTHubModuleClient);
             var moduleTwinCollection = twin.Properties.Desired;
             
-            //check for default desired properties
-            if (moduleTwinCollection["TemperatureThresholdUpper"] != null)
-            {
-                TemperatureThresholdUpper = moduleTwinCollection["TemperatureThresholdUpper"];
-            }
-            else{
-                TemperatureThresholdUpper = 40;
-            }
-
-            if (moduleTwinCollection["TemperatureThresholdLower"] != null)
-            {
-                TemperatureThresholdLower = moduleTwinCollection["TemperatureThresholdLower"];
-            }
-            else{
-                TemperatureThresholdLower = 10;
-            }
-
-            if (moduleTwinCollection["HumidityThresholdUpper"] != null)
-            {
-                HumidityThresholdUpper = moduleTwinCollection["HumidityThresholdUpper"];
-            }
-            else{
-                HumidityThresholdUpper = 80;
-            }
-
-            if (moduleTwinCollection["HumidityThresholdLower"] != null)
-            {
-                HumidityThresholdLower = moduleTwinCollection["HumidityThresholdLower"];
-            }
-            else{
-                HumidityThresholdLower = 40;
-            }
-
-            if (moduleTwinCollection["WebServerUrl"] != null)
-            {
-                WebServerUrl = moduleTwinCollection["WebServerUrl"];
-            }
-            else{
-                WebServerUrl = "http://172.17.0.1:3000/";
-            }
-
-            MachineConnector = new MachineConnector(WebServerUrl);
-
             await ioTHubModuleClient.OpenAsync();
 
             Console.WriteLine("Filter Edge module client initialized.");
@@ -175,6 +132,7 @@ namespace AzureIoTEdgeFilterModule
                 byte[] messageBytes = message.GetBytes();
                 string messageString = Encoding.UTF8.GetString(messageBytes);
                 Console.WriteLine($"Received message {DateTime.UtcNow.ToString()}: [{messageString}]");
+                Console.WriteLine($"Current config -> Url : {WebServerUrl}, TempLower : {TemperatureThresholdLower}, TempUpper : {TemperatureThresholdUpper}, HumLower : {HumidityThresholdLower}, HumUpper : {HumidityThresholdUpper}");
 
                 // Get message body
                 var messageBody = JsonConvert.DeserializeObject<ScoredDHTMessageBody>(messageString);
@@ -203,11 +161,12 @@ namespace AzureIoTEdgeFilterModule
 
                     Console.WriteLine($"Sent data to upstream because relevant {messageBody.timeCreated}: {messageBody.temperature} |  {messageBody.humidity} | Anomaly {messageBody.IsAnomaly}");
                 
-                    if(MachineConnector.InteractWithMachine(new MachineInteractionCommand(){
+                    if(MachineConnector != null && MachineConnector.InteractWithMachine(new MachineInteractionCommand(){
                         CommandLevel = commandLevel,
                         Temperature = messageBody.temperature,
                         Humidity = messageBody.humidity
-                    })){
+                    }))
+                    {
                         Console.WriteLine($"Successfully interacted with machine");
                     }
                 }
@@ -244,40 +203,47 @@ namespace AzureIoTEdgeFilterModule
 
                 var reportedProperties = new TwinCollection();
 
-                if (desiredProperties["TemperatureThresholdUpper"] != null)
+                if (desiredProperties.Contains("TemperatureThresholdUpper") && desiredProperties["TemperatureThresholdUpper"] != null && desiredProperties["TemperatureThresholdUpper"] != 0)
                 {
-                    TemperatureThresholdUpper = desiredProperties["TemperatureThresholdUpper"];
-
-                    reportedProperties["TemperatureThresholdUpper"] = TemperatureThresholdUpper;
+                    TemperatureThresholdUpper = desiredProperties["TemperatureThresholdUpper"];                    
+                }
+                else{
+                    TemperatureThresholdUpper = 35;                    
                 }
 
-                if (desiredProperties["TemperatureThresholdLower"] != null)
-                {
-                    TemperatureThresholdLower = desiredProperties["TemperatureThresholdLower"];
+                reportedProperties["TemperatureThresholdUpper"] = TemperatureThresholdUpper;
 
-                    reportedProperties["TemperatureThresholdLower"] = TemperatureThresholdLower;
+                if (desiredProperties.Contains("TemperatureThresholdLower") && desiredProperties["TemperatureThresholdLower"] != null && desiredProperties["TemperatureThresholdLower"] != 0)
+                {
+                    TemperatureThresholdLower = desiredProperties["TemperatureThresholdLower"];                    
+                }
+                else{
+                    TemperatureThresholdLower = 10;
                 }
 
-                if (desiredProperties["HumidityThresholdUpper"] != null)
-                {
-                    HumidityThresholdUpper = desiredProperties["HumidityThresholdUpper"];
+                reportedProperties["TemperatureThresholdLower"] = TemperatureThresholdLower;
 
-                    reportedProperties["HumidityThresholdUpper"] = HumidityThresholdUpper;
+                if (desiredProperties.Contains("HumidityThresholdUpper") && desiredProperties["HumidityThresholdUpper"] != null && desiredProperties["HumidityThresholdUpper"] != 0)
+                {
+                    HumidityThresholdUpper = desiredProperties["HumidityThresholdUpper"];                    
                 }
 
-                if (desiredProperties["HumidityThresholdLower"] != null)
-                {
-                    HumidityThresholdLower = desiredProperties["HumidityThresholdLower"];
+                reportedProperties["HumidityThresholdUpper"] = HumidityThresholdUpper;
 
-                    reportedProperties["HumidityThresholdLower"] = HumidityThresholdLower;
+                if (desiredProperties.Contains("HumidityThresholdLower") && desiredProperties["HumidityThresholdLower"] != null && desiredProperties["HumidityThresholdLower"] != 0)
+                {
+                    HumidityThresholdLower = desiredProperties["HumidityThresholdLower"];                    
                 }
 
-                if (desiredProperties["WebServerUrl"] != null)
-                {
-                    WebServerUrl = desiredProperties["WebServerUrl"];
+                reportedProperties["HumidityThresholdLower"] = HumidityThresholdLower;
 
-                    reportedProperties["WebServerUrl"] = WebServerUrl;
+                if (desiredProperties.Contains("WebServerUrl") && !string.IsNullOrEmpty(desiredProperties["WebServerUrl"]))
+                {
+                    WebServerUrl = desiredProperties["WebServerUrl"];                    
                 }
+
+                MachineConnector = new MachineConnector(WebServerUrl);
+                reportedProperties["WebServerUrl"] = WebServerUrl;
 
                 if (reportedProperties.Count > 0)
                 {

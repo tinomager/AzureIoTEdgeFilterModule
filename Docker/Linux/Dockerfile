@@ -1,4 +1,4 @@
-FROM microsoft/dotnet:2.0.0-runtime-stretch-arm32v7
+FROM microsoft/dotnet:2.0.0-runtime-stretch
 
 ARG EXE_DIR=.
 
